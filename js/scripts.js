@@ -15,7 +15,7 @@ var path = d3.geoPath()
         .pointRadius(2);
 
 d3.queue()
-.defer(d3.csv, "data/all_data.csv?v1")
+.defer(d3.csv, "data/data.csv?v1")
 .defer(d3.json, "data/gujarat_geo_all.json")
 .await(ready);
 
@@ -23,6 +23,9 @@ var start_year = 1976
 var end_year = 2008
 
 function ready(error, data, geo){
+    var select_data = _.filter(data,function(d){
+        return d.Position == "Higher" || d.Position == 'No CG'
+    })
     // initalize the tip
             var tip = d3.select("body").append("div")
                 .attr("class", "tip");
@@ -31,9 +34,11 @@ function ready(error, data, geo){
             tip.append("div")
                 .attr("class", "title");
 
-        select_data = _.chain(data).filter(function(d){
-                return (+d.Year == 2012) && d.Position=="1"
-            }).sortBy('Party').sortBy('Year').value()
+            tip.append("div")
+                .attr("class", "type");
+
+            tip.append("div")
+                .attr("class", "higher");
 
         var party_colors = {
                     'BJP':'orange',
@@ -66,10 +71,12 @@ function ready(error, data, geo){
             .domain([80,0]);
 
         //axes
-        var xAxis = d3.axisBottom(x).ticks(5).tickSize(-height+(margin.top)+margin.bottom).ticks(2),
+        var xAxis = d3.axisBottom(x).ticks(5).tickSize(-height+(margin.top)+margin.bottom).ticks(2).tickFormat(function(d){
+            return d+'%'
+        }),
             yAxis = d3.axisLeft(y).ticks(5).tickSize(-width+(margin.left)+margin.right).tickFormat(function(d){
                 if (d!=0){
-                    return d
+                    return d+'%'
                 }
             }); 
 
@@ -119,6 +126,28 @@ function ready(error, data, geo){
                 .style('text-anchor','end')
                 .text('Vote Share Percentage →')
 
+        var desktop_ann = ["BJP had a higher vote share in 50/56 seats (90%) where more than half the population lives in urban areas.","Rural constituencies have a tougher fight - Congress dominates in 44% of seats (55); BJP led in 56% of the seats (71)."]
+
+        var mobile_ann = ["Urban Gujarat: BJP led in 50/56 seats (90%).","Rural Gujarat: BJP led in 71/126 seats (56%); Congress - 55/126 (44%)."]
+
+        g.append("g")
+                .attr("class", "annotation")
+                .append('text')
+                .text('')
+                .style('text-anchor','middle')
+                .attr("transform", "translate("+x(25)+"," + y(15) + ")")
+                .tspans( function(d){return d3.wordwrap((window_width>600)?desktop_ann[0]:mobile_ann[0], (window_width>600)?22:18)})
+
+
+         g.append("g")
+                .attr("class", "annotation")
+                .append('text')
+                .text('')
+                .style('text-anchor','middle')
+                .attr("transform", "translate("+x(75)+"," + y(15) + ")")
+                .tspans( function(d){return d3.wordwrap((window_width>600)?desktop_ann[1]:mobile_ann[1], (window_width>600)?22:18)})
+
+
         // scatter plot dots
         g.append("g").attr('class','circle-layer').selectAll(".dot")
                         .data(select_data)
@@ -134,25 +163,7 @@ function ready(error, data, geo){
                             return x(d.rural_per); 
                         })
                         .attr("cy", function (d) { 
-                            if (d.Party=='INC' || d.Party=='BJP'){
-                                return y(+d.Vote_Share_Percentage); 
-                            } else {
-                                var cong = _.findWhere(data,{
-                                    'Party':'INC',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                var bjp = _.findWhere(data,{
-                                    'Party':'BJP',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                if (bjp.Vote_Share_Percentage>cong.Vote_Share_Percentage){
-                                    return x(bjp.Vote_Share_Percentage)
-                                } else {
-                                    return x(cong.Vote_Share_Percentage)
-                                }
-                            }
+                            return y(+d.Vote_Share_Percentage); 
                             
                         })
                         .attr("opacity", 0.7)
@@ -161,23 +172,7 @@ function ready(error, data, geo){
                                 return 'orange'
                             } else if (d.Party=='INC'){
                                 return 'steelblue'
-                            } else {
-                                var cong = _.findWhere(data,{
-                                    'Party':'INC',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                var bjp = _.findWhere(data,{
-                                    'Party':'BJP',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                if (bjp.Vote_Share_Percentage>cong.Vote_Share_Percentage){
-                                    return 'orange'
-                                } else {
-                                    return 'steelblue'
-                                }
-                            }
+                            } 
                         })
                         
             function tipOff(){
@@ -193,7 +188,13 @@ function ready(error, data, geo){
 
                     var rect_class = ".dot.ac-" + d.Constituency_No;
                     tip.select(".title")
-                        .html(toTitleCase(d.Constituency_Name)+' is a '+((d.rural_per>50)?(roundNum(d.rural_per,2)+'% rural'):(100-roundNum(d.rural_per,2)+'% urban'))+' seat.')
+                        .html(toTitleCase(d.Constituency_Name))
+
+                    tip.select(".type")
+                        .html('<span>Percentage of population living in rural areas: </span>'+parseInt(d.rural_per)+'%')
+
+                    tip.select(".higher")
+                        .html((d.Position=='No CG')?'Congress did not contest from this seat.':'Higher vote share ('+parseInt(d.Vote_Share_Percentage)+'%) acquired by <span>'+d.Party+"</span>")
 
                     tip.select(".close-tip")
                         .html("<i class='fa fa-times' aria-hidden='true'></i>")
@@ -223,27 +224,7 @@ function ready(error, data, geo){
 
             const voronoiDiagram = d3.voronoi()
                                       .x(d => x(d.rural_per) )
-                                      .y(function(d){
-                                                if (d.Party=='INC' || d.Party=='BJP'){
-                                                    return y(+d.Vote_Share_Percentage); 
-                                                } else {
-                                                    var cong = _.findWhere(data,{
-                                                        'Party':'INC',
-                                                        'Position':'1',
-                                                        'Year':'2012'
-                                                    })
-                                                    var bjp = _.findWhere(data,{
-                                                        'Party':'BJP',
-                                                        'Position':'1',
-                                                        'Year':'2012'
-                                                    })
-                                                    if (bjp.Vote_Share_Percentage>cong.Vote_Share_Percentage){
-                                                        return x(bjp.Vote_Share_Percentage)
-                                                    } else {
-                                                        return x(cong.Vote_Share_Percentage)
-                                                    }
-                                                }
-                                      })
+                                      .y(d => y(d.Vote_Share_Percentage))
                                       .size([width, height])(select_data);
 
             const voronoiRadius = width / 10;
@@ -327,7 +308,7 @@ function ready(error, data, geo){
               .append('tspan')
               .text(function(d) { return d; })
               .attr('x', 0)
-              .attr('dy', function(d,i) { return i ? lh || 10 : 0; });
+              .attr('dy', function(d,i) { return i ? lh || 15 : 0; });
       };
 
       d3.selection.prototype.moveToFront = function() {  

@@ -6,7 +6,7 @@ gw=dw.getElementsByTagName('body')[0]
 var window_width = w.innerWidth||ew.clientWidth||gw.clientWidth
 
 var width = (window_width<900)?window_width*0.95:900, height= 550, margin={top: 10, right: 25, bottom: 55, left: 45}
-var desktop_width = 300, desktop_height= 280
+var desktop_width = 300, desktop_height= 280, pointRadius = 5
 
 var projection = d3.geoMercator();
 
@@ -15,9 +15,7 @@ var path = d3.geoPath()
         .pointRadius(2);
 
 d3.queue()
-.defer(d3.csv, "data/all_data.csv")
-.defer(d3.csv, "data/census.csv")
-
+.defer(d3.csv, "data/all_data.csv?v1")
 .defer(d3.json, "data/gujarat_geo_all.json")
 .await(ready);
 
@@ -25,6 +23,14 @@ var start_year = 1976
 var end_year = 2008
 
 function ready(error, data, geo){
+    // initalize the tip
+            var tip = d3.select("body").append("div")
+                .attr("class", "tip");
+            tip.append("div")
+                .attr("class", "close-tip");
+            tip.append("div")
+                .attr("class", "title");
+
         select_data = _.chain(data).filter(function(d){
                 return (+d.Year == 2012) && d.Position=="1"
             }).sortBy('Party').sortBy('Year').value()
@@ -114,62 +120,18 @@ function ready(error, data, geo){
                 .text('Vote Share Percentage →')
 
         // scatter plot dots
-        g.selectAll(".dot")
+        g.append("g").attr('class','circle-layer').selectAll(".dot")
                         .data(select_data)
                         .enter()
                         .append("circle")
                         .attr("class", function(d){
-                            var census_obj = _.filter(census,function(e){
-                                return +e.AC_NO == +d.Constituency_No
-                            })
-
-                            if (d.Party=='INC'){
-                                if ((100-census_obj[0].Urban_per)<50){
-                                    return 'dot congress less-50'
-                                } else {
-                                    return 'dot congress more-50'
-                                }
-                                
-                            } else if(d.Party=='BJP'){
-                                if ((100-census_obj[0].Urban_per)<50){
-                                    return 'dot bjp less-50'
-                                } else {
-                                    return 'dot bjp more-50'
-                                }
-                            } else {
-                                var cong = _.findWhere(data,{
-                                    'Party':'INC',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                var bjp = _.findWhere(data,{
-                                    'Party':'BJP',
-                                    'Position':'1',
-                                    'Year':'2012'
-                                })
-                                if (bjp.Vote_Share_Percentage>cong.Vote_Share_Percentage){
-                                    if ((100-census_obj[0].Urban_per)<50){
-                                    return 'dot bjp less-50'
-                                    } else {
-                                        return 'dot bjp more-50'
-                                    }
-                                } else {
-                                    if ((100-census_obj[0].Urban_per)<50){
-                                        return 'dot congress less-50'
-                                    } else {
-                                        return 'dot congress more-50'
-                                    }
-                                }
-                            }
+                            return 'dot ac-'+d.Constituency_No
                         })
                         .attr("r", function(d){
-                            return '5'
+                            return pointRadius
                         })
                         .attr("cx", function (d) { 
-                            var census_obj = _.filter(census,function(e){
-                                return +e.AC_NO == +d.Constituency_No
-                            })
-                            return x(100-+census_obj[0].Urban_per); 
+                            return x(d.rural_per); 
                         })
                         .attr("cy", function (d) { 
                             if (d.Party=='INC' || d.Party=='BJP'){
@@ -216,8 +178,126 @@ function ready(error, data, geo){
                                     return 'steelblue'
                                 }
                             }
-                        });
+                        })
+                        
+            function tipOff(){
+                d3.selectAll(".dot").classed("selected", false);
 
+                d3.select(".tip")
+                    .style("opacity", 0)
+                    .style("left", "-1000px")
+                    .style("top", "-1000px");               
+            }
+
+            function tipOn(d){
+
+                    var rect_class = ".dot.ac-" + d.Constituency_No;
+                    tip.select(".title")
+                        .html(toTitleCase(d.Constituency_Name)+' is a '+((d.rural_per>50)?(roundNum(d.rural_per,2)+'% rural'):(100-roundNum(d.rural_per,2)+'% urban'))+' seat.')
+
+                    tip.select(".close-tip")
+                        .html("<i class='fa fa-times' aria-hidden='true'></i>")
+                        .on('click',tipOff());
+
+                    // position
+                    var media_pos = d3.select(rect_class).node().getBoundingClientRect();
+                    var tip_pos = d3.select(".tip").node().getBoundingClientRect();
+                    var tip_offset = 5;
+                    var window_offset = window.pageYOffset;
+                    var window_padding = 40;
+
+                    var left = (media_pos.left - tip_pos.width / 2);
+                    left = left < 0 ? media_pos.left :
+                        left + tip_pos.width > window_width ? media_pos.left - tip_pos.width :
+                        left;
+
+                    var top = window_offset + media_pos.top - tip_pos.height - tip_offset;
+                    top = top < window_offset + window_padding ? window_offset + media_pos.top + media_pos.height + tip_offset :
+                        top;
+                    
+                    d3.select(".tip")
+                        .style("opacity", .98)
+                        .style("left", left + "px")
+                        .style("top", top + "px");
+                } // tipOn ends
+
+            const voronoiDiagram = d3.voronoi()
+                                      .x(d => x(d.rural_per) )
+                                      .y(function(d){
+                                                if (d.Party=='INC' || d.Party=='BJP'){
+                                                    return y(+d.Vote_Share_Percentage); 
+                                                } else {
+                                                    var cong = _.findWhere(data,{
+                                                        'Party':'INC',
+                                                        'Position':'1',
+                                                        'Year':'2012'
+                                                    })
+                                                    var bjp = _.findWhere(data,{
+                                                        'Party':'BJP',
+                                                        'Position':'1',
+                                                        'Year':'2012'
+                                                    })
+                                                    if (bjp.Vote_Share_Percentage>cong.Vote_Share_Percentage){
+                                                        return x(bjp.Vote_Share_Percentage)
+                                                    } else {
+                                                        return x(cong.Vote_Share_Percentage)
+                                                    }
+                                                }
+                                      })
+                                      .size([width, height])(select_data);
+
+            const voronoiRadius = width / 10;
+
+            g.append('circle')
+              .attr('class', 'highlight-circle')
+              .attr('r', pointRadius + 2) // slightly larger than our points
+              .style('fill', 'none')
+              .style('display', 'none');
+
+
+            // callback to highlight a point
+            function highlight(d) {
+              // no point to highlight - hide the circle
+              if (!d) {
+                d3.select('.highlight-circle').style('display', 'none');
+                tipOff()
+              // otherwise, show the highlight circle at the correct position
+              } else {
+                d3.select('.highlight-circle')
+                  .style('display', '')
+                  .style('stroke', 'black')
+                  .attr('cx', x(+d.rural_per))
+                  .attr('cy', y(+d.Vote_Share_Percentage));
+
+                tipOn(d)
+              }
+                
+            }
+            // callback for when the mouse moves across the overlay
+                function mouseMoveHandler() {
+                  // get the current mouse position
+                  const [mx, my] = d3.mouse(this);
+
+                  // use the new diagram.find() function to find the Voronoi site
+                  // closest to the mouse, limited by max distance voronoiRadius
+                  const site = voronoiDiagram.find(mx, my, voronoiRadius);
+
+                  // highlight the point if we found one
+                  highlight(site && site.data);
+                  
+                }
+            // add the overlay on top of everything to take the mouse events
+            g.append('rect')
+                  .attr('class', 'overlay')
+                  .attr('width', width)
+                  .attr('height', height)
+                  .style('fill', '#f00')
+                  .style('opacity', 0)
+                  .on('mousemove', mouseMoveHandler)
+                  .on('mouseleave', () => {
+                    // hide the highlight circle when the mouse leaves the chart
+                    highlight(null);
+                  });
         } // ready ends
 
         function toTitleCase(str){

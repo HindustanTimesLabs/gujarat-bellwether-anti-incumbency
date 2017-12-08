@@ -16,13 +16,14 @@ var path = d3.geoPath()
 
 d3.queue()
 .defer(d3.csv, "data/data.csv?v1")
+.defer(d3.csv, "data/strongholds.csv?v1")
 .defer(d3.json, "data/gujarat_geo_all.json")
 .await(ready);
 
 var start_year = 1976
 var end_year = 2008
 
-function ready(error, data, geo){
+function ready(error, data,strongholds, geo){
     var select_data = _.filter(data,function(d){
         return d.Position == "Higher" || d.Position == 'No CG'
     })
@@ -279,6 +280,132 @@ function ready(error, data, geo){
                     // hide the highlight circle when the mouse leaves the chart
                     highlight(null);
                   });
+
+            ////////////////////////////////////
+            /////////// MAP BEGINS /////////////
+            ////////////////////////////////////
+            var map_width = (window_width<700)?window_width*0.9:300
+            var map_height = map_width*0.7
+            map_margin={left:25, right:25, top: 5, bottom: 5}
+            var effective_width = map_width-map_margin.left-map_margin.right
+            var effective_height = map_height-map_margin.top-map_margin.bottom
+
+
+            var boundary = centerZoom(geo,'gujarat_2008');
+
+            var g_map = d3.select('#strongholds').append('svg')
+            .attr('height',map_height)
+            .attr('width',map_width)
+            .append('g')
+
+            drawOuterBoundary(boundary);
+             drawSubUnits()
+             // This function "centers" and "zooms" a map by setting its projection's scale and translate according to its outer boundary
+            // It also returns the boundary itself in case you want to draw it to the map
+              function centerZoom(data, selected){
+                var o = topojson.mesh(data, data.objects[selected], function(a, b) { return a === b; });
+
+                projection
+                    .scale(1)
+                    .translate([0, 0]);
+
+                var b = path.bounds(o),
+                    s = 1 / Math.max((b[1][0] - b[0][0]) / effective_width, (b[1][1] - b[0][1]) / effective_height),
+                    t = [(effective_width - s * (b[1][0] + b[0][0])) / 2, (effective_height - s * (b[1][1] + b[0][1])) / 2];
+
+                projection
+                    .scale(s)
+                    .translate(t);
+
+                return o;
+              }
+
+              function drawOuterBoundary(boundary){
+                g_map.append("path")
+                    .datum(boundary)
+                    .attr("d", path)
+                    .attr("class", "subunit-boundary");
+              }
+
+              function drawSubUnits(){
+            
+            g_map
+                .append('g')
+                .selectAll(".subunit")
+                .data(topojson.feature(geo, geo.objects['gujarat_2008']).features)
+                .enter().append("path")
+                .attr("class", function(d){ return "subunit g-ac-"+ d.properties.ac_no})
+                .attr("d", path)
+                .attr('fill', function(d){
+                    if (d.properties.ac_no!=0){
+                        var obj = _.filter(strongholds, function(e){
+                            return (+e['ac_no_2012'] == +d.properties.ac_no)
+                        })
+                        if (obj.length>0){
+                            return party_colors[obj[0].party]
+                        } else {
+                            return 'none'
+                        }
+                    } else {
+                        return 'none'
+                    }
+                })
+                .on('mouseover',function(d){
+                    var obj = _.filter(strongholds, function(e){
+                            return (+e['ac_no_2012'] == +d.properties.ac_no)
+                        })
+                    if (d.properties.ac_no!=0 && obj.length>0){
+                        mapTipOn(d.properties.ac_no,obj[0])
+                    }
+                })
+                .on('mouseout',function(d){
+                    mapTipOff(d.properties.ac_no)
+                })
+
+        } // end drawSubunits();
+            function mapTipOff(ac){
+                d3.selectAll( ".subunit.g-ac-" + ac).classed("selected", false)
+                 d3.select(".tip")
+                    .style("opacity", 0)
+                    .style("left", "-1000px")
+                    .style("top", "-1000px");   
+            }
+             function mapTipOn(ac,d){
+
+                    var rect_class = ".subunit.g-ac-" + ac;
+
+                        d3.selectAll( ".subunit.g-ac-" + ac).classed("selected", true).moveToFront();
+                    tip.select(".title, .higher").html('')
+                    tip.select(".type")
+                        .html(function(){
+                            return "<span>"+party_name[d.party] +'</span> has retained the <span>'+toTitleCase(d.ac_name_2012)+'</span> seat since 1995.'
+                    });
+
+                    tip.select(".close-tip")
+                        .html("<i class='fa fa-times' aria-hidden='true'></i>");
+
+                    // position
+
+                    var media_pos = d3.select(rect_class).node().getBoundingClientRect();
+                    var tip_pos = d3.select(".tip").node().getBoundingClientRect();
+                    var tip_offset = 5;
+                    var window_offset = window.pageYOffset;
+                    var window_padding = 40;
+
+                    var left = (media_pos.left - tip_pos.width / 2);
+                    left = left < 0 ? media_pos.left :
+                        left + tip_pos.width > window_width ? media_pos.left - tip_pos.width :
+                        left;
+
+                    var top = window_offset + media_pos.top - tip_pos.height - tip_offset;
+                    top = top < window_offset + window_padding ? window_offset + media_pos.top + media_pos.height + tip_offset :
+                        top;
+                    
+                    d3.select(".tip")
+                        .style("opacity", .98)
+                        .style("left", left + "px")
+                        .style("top", top + "px");
+                }
         } // ready ends
 
         function toTitleCase(str){
